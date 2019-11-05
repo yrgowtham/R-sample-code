@@ -1,0 +1,125 @@
+library(dplyr)
+library(ggplot2)
+
+train<-read.csv("train.csv",stringsAsFactors = FALSE)
+test<-read.csv("test.csv",stringsAsFactors = FALSE)
+
+#target variable distribution 
+prop.table(table(train$Survived))
+
+#Missing Value summary
+VariableNames<-colnames(train)
+MissingValues<-sapply(train, function(x) sum(is.na(x)))
+MissingValues_summary<-data.frame(VariableNames,MissingValues,row.names = NULL)
+
+#how many unique values in each column
+Uq_value<-sapply(train,function(x) length(unique(x)))
+
+
+#basic ratios
+overall_survivalrate<-sum(train$Survived==1)/length(train$Survived)
+male_suvival_rate<-sum((train$Survived==1 & train$Sex=="male"))/sum(train$Sex=="male")
+
+#Correlation analysis
+names(train)
+cor(train[,c(2,3,6,7,8,10)])
+
+#Missing Value imputation with Mean value
+mean(train$Age,na.rm = TRUE)
+male_mean<-mean(train[train$Sex=="male",]$Age ,na.rm = TRUE)
+female_mean<-mean(train[train$Sex=="female",]$Age ,na.rm = TRUE)
+#Impute Male mean and female mean 
+train[train$Sex=="male" & is.na(train$Age),]$Age<-male_mean
+train[train$Sex=="female" & is.na(train$Age),]$Age<-female_mean
+
+#Child variable 
+train$Child<-0
+train[train$Age<=18,]$Child<-1
+
+#Summary using aggregate function
+aggregate(Survived~Child+Sex,data=train,FUN = sum)
+
+#total in dataset
+aggregate(Survived~Child+Sex,data=train,FUN = length)
+
+#to see the same as propotions
+aggregate(Survived~Child+Sex,data=train,FUN = function(x) {sum(x)/length(x)})
+
+#Rpart decision tree
+
+fit <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+             data=train,
+             method="class")
+plot(fit)
+text(fit)
+install.packages('rattle')
+install.packages('rpart.plot')
+install.packages('RColorBrewer')
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+fancyRpartPlot(fit)
+Prediction <- predict(fit, test, type = "class")
+submit <- data.frame(PassengerId = test$PassengerId, Survived = Prediction)
+fit <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+               data=train,
+               method="class", 
+               control=rpart.control(minsplit=2, cp=0.002,xval = 10))
+plot(fit)
+text(fit)
+plotcp(fit)
+printcp(fit)
+tree.fit=prune(fit,cp=0.0058480)
+rpart.plot(tree.fit)
+
+fit <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+             data=train,
+             method="class")
+rpart.plot(fit,type=4,extra=101)
+?rpart.control
+
+#Using names to build feature
+train$title<-sapply(train$Name,FUN=function(x) {strsplit(x,split = '[,.]')[[1]][2]})
+train$title<-sub(" ","",train$title)
+table(train$title)
+
+#combine few values into ne
+
+train[train$title %in% c('Mlle','Mme'),]$title<-'Mlle'
+train$title[train$title %in% c('Capt', 'Don', 'Major', 'Sir')] <- 'Sir'
+train$title[train$title %in% c('Dona', 'Lady', 'the Countess', 'Jonkheer')] <- 'Lady'
+names(train)
+
+Agefit <- rpart(Age ~ Pclass + Sex + SibSp + Parch + Fare + Embarked ,  
+                  data=test[!is.na(test$Age),], 
+                  method="anova")
+test$Age[is.na(test$Age)] <- predict(Agefit, test[is.na(test$Age),])
+
+install.packages('randomForest')
+library(randomForest)
+train$Sex<-as.factor(train$Sex)
+
+test$Sex<-as.factor(test$Sex)
+
+fit <- randomForest(as.factor(Survived) ~ Pclass + Sex + Age + Fare,
+                      data=train, 
+                      importance=TRUE, 
+                      ntree=2000)
+predict(fit,newdata = test)
+varImpPlot(fit)
+
+install.packages('party')
+library(party)
+
+fit <- cforest(as.factor(Survived) ~  Pclass + Sex + Age + Fare,
+               data = train, 
+               controls=cforest_unbiased(ntree=2000, mtry=3))
+predict(fit,newdata = test)
+Prediction <- predict(fit, test, OOB = TRUE, type = "response")
+
+#Logistic regression
+#to check the distribution
+xtabs(~Survived+Sex,data=train)
+logistic<-glm(Survived~Pclass + Sex + Age + Fare,data=train,family = "binomial")
+summary(logistic)
+predict(logistic,newdata = test,type="response")
